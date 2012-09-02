@@ -10,14 +10,15 @@ import xlrd
 import xlutils
 import shutil
 import beautifulSoup as bs
-import write_to_sql_files as wsql
+#import write_to_sql_files as wsql
+import os
 cat_count =1
 prod_count = 1
 #open workbook
 #wb = xlrd.open_workbook('booklist/eng_cse_compsc_book_list.xls')
 #sh = wb.sheet_by_index(0)
 #end of open workbook
-engine = create_engine('sqlite:///cknew.db')
+engine = create_engine('sqlite:///ckb.db')
 Base = declarative_base()
 logging.basicConfig(file='db_populate.log',level=logging.DEBUG)
 #define associate table between books and related books
@@ -77,7 +78,21 @@ class UnivBranches (Base):
         cat_count+=1
     def __repr__(self):
         return "university branch <'%s'>" %(self.univbra_name)
-        
+class UnivSemesters(Base):
+    __tablename__ = 'UnivSemesters'
+    sem_id = Column(Integer,primary_key = True)
+    sem_name = Column(String(length =100),nullable = False)
+    sem_real_name = Column(String(length = 200))
+    parent_branch_id = Column(Integer,ForeignKey(UnivBranches.univbra_id))
+    parent_branch = relationship('UnivBranches',backref = backref('UnivSemesters',order_by=sem_id))
+    def __init__(self,sem_name,sem_real_name):
+        global cat_count
+        self.sem_id = cat_count
+        self.sem_name = sem_name
+        self.sem_real_name = sem_real_name
+        cat_count+=1
+    def __repr__(self):
+        return "semester<'%s'> sem realname <'%s'>" %(self.sem_name,self.sem_real_name)
 class Branches(Base):
     __tablename__ = 'Branches'
     branch_name = Column(String(length=50),nullable = False)
@@ -104,11 +119,11 @@ class Subjects(Base):
     subject_name = Column(String(length=200),nullable = False)
     subject_real_name = Column(String(length = 250))
     subject_id = Column(Integer, Sequence('subject_id_seq',start=1000,increment=1),primary_key = True )
-    parent_branch_id = Column(Integer, ForeignKey(UnivBranches.univbra_id))
+    parent_sem_id = Column(Integer, ForeignKey(UnivSemesters.sem_id))
     sort_order = Column(Integer)
     time_entry = Column(String)
     time_mod = Column(String)
-    parent_branch = relationship('UnivBranches',backref = backref('subjects',order_by=subject_id))
+    parent_semester = relationship('UnivSemesters',backref = backref('sem_subjects',order_by=subject_id))
     subject_books = relationship('Books',secondary=subjects_books_assoc,backref='parent_subjects')
     #books =  relationship('Books',order_by = 'Books.book_id',backref = 'Books.subject')
     def __init__(self,name,realname=''):
@@ -233,6 +248,7 @@ session = sessionmaker(bind=engine)()
 cat_count+=len(session.query(MainMenu).all())
 cat_count+=len(session.query(Universities).all())
 cat_count+=len(session.query(UnivBranches).all())
+cat_count+=len(session.query(UnivSemesters).all())
 cat_count+=len(session.query(Branches).all())
 cat_count+=len(session.query(Subjects).all())
 prod_count+=len(session.query(Books).all())
@@ -242,7 +258,7 @@ print prod_count
 
 #testing workbook
 def populate_db():
-    excel_files=['eng_ece_book_list.xls','eng_eee_book_list.xls','eng_instrument_book_list.xls','eng_ise_book_list.xls','eng_mech_book_list.xls','eng_telecom_book_list.xls']
+    excel_files=['anna_books_list.xls']
     for excel_file in excel_files:
         excel_file = 'booklist/'+excel_file
         wb = xlrd.open_workbook(excel_file)
@@ -256,15 +272,16 @@ def populate_db():
             writing function to write to workbook"""
             
             #print book_info
-            isbn_str = row_list[9]
-            isbn_int= int(row_list[9])
+            isbn_str = row_list[10]
+            isbn_int= int(row_list[10])
             branch_str = row_list[4]
-            sub_str = row_list[5]
+            sem_str = row_list[5]
+            sub_str = row_list[6]
             univ_str = row_list[2]
-            univ_code= row_list[11]
+            univ_code= row_list[12]
             first_catstr = row_list[1]
             scnd_catstr = row_list[3]
-            branch_code = row_list[10]
+            branch_code = row_list[11]
             print isbn_str
             check_book = session.query(Books).filter_by(book_isbn13=isbn_int).first()
             if not check_book:
@@ -276,10 +293,13 @@ def populate_db():
                     book_info = bs.populate_book_info_uread(isbn_str)
                 if not book_info:
                     continue
-                if not bs.download_prod_img(isbn_str):
-                    logging.info('unable to download image for isbn %s',isbn_str)
-                    destin_img='isbn/noimage_cklogo_'+isbn_str+'.jpg'
-                    shutil.copy2('cklogo.jpg',destin_img)
+                img_name = 'isbn/image_'+isbn_str+'.jpg'
+                if not os.path.exists(img_name):
+                    print img_name+' does not exist'
+                    if not bs.download_prod_img(isbn_str):
+                        logging.info('unable to download image for isbn %s',isbn_str)
+                        destin_img='isbn/noimage_cklogo_'+isbn_str+'.jpg'
+                        shutil.copy2('cklogo.jpg',destin_img)
                 check_book  = Books(book_info)
             else:
                 print "book exists already"
@@ -299,59 +319,71 @@ def populate_db():
                 new_subject = Subjects(name=sub_str,realname=subject_real_str_name)
                 new_subject.subject_books.append(check_book)
                 session.add(new_subject)
-                print(branch_str)
-                branch_real_name = branch_str+'_'+univ_code
-                check_univbranch = session.query(UnivBranches).filter_by(univbra_real_name = branch_real_name).first()
-                #print check_univbranch
-                if check_univbranch:
-                    check_univbranch.subjects.append(new_subject)
-                    #session.add(new_subject)
-                    #session.commit()
-                    print check_univbranch.subjects   
+                print (sem_str)
+                semester_real_name = sem_str+'_'+branch_code+'_'+univ_code
+                check_univsem = session.query(UnivSemesters).filter_by(sem_real_name = semester_real_name).first()
+                if check_univsem:
+                    print 'sem  exists'
+                    check_univsem.sem_subjects.append(new_subject)
                 else:
-                    print 'univbranch does not exist'
-                    new_branch = UnivBranches(univbranch_name=branch_str,univbranch_real_name=branch_real_name)
-                    new_branch.subjects.append(new_subject)
-                    session.add(new_branch)
-                    check_univ = session.query(Universities).filter_by(univ_name = univ_str).first()
-                    if check_univ:
-                        check_univ.univbranches.append(new_branch)
+                    print 'sem does not exist'
+                    new_univsem = UnivSemesters(sem_name = sem_str,sem_real_name = semester_real_name)
+                    new_univsem.sem_subjects.append(new_subject)
+                    session.add(new_univsem) 
+                    
+                    print(branch_str)
+                    branch_real_name = branch_str+'_'+univ_code
+                    check_univbranch = session.query(UnivBranches).filter_by(univbra_real_name = branch_real_name).first()
+                    #print check_univbranch
+                    if check_univbranch:
+                        check_univbranch.UnivSemesters.append(new_univsem)
+                        #session.add(new_subject)
+                        #session.commit()
+                        print check_univbranch.UnivSemesters   
+                    else:
+                        print 'univbranch does not exist'
+                        new_branch = UnivBranches(univbranch_name=branch_str,univbranch_real_name=branch_real_name)
+                        new_branch.UnivSemesters.append(new_univsem)
                         session.add(new_branch)
-                    else:
-                        print 'university does not exist'
-                        print univ_str
-                        new_univ = Universities(university_name = univ_str)
-                        new_univ.univbranches.append(new_branch)
-                        session.add(new_univ)
-                        print first_catstr
-                        check_cat = session.query(MainMenu).filter_by(name = first_catstr).first()
-                        if check_cat:
-                            check_cat.universities.append(new_univ)
-                            #session.add(new_branch)
-                            #session.commit()
+                        check_univ = session.query(Universities).filter_by(univ_name = univ_str).first()
+                        if check_univ:
+                            check_univ.univbranches.append(new_branch)
+                            session.add(new_branch)
                         else:
-                            print 'main category does not exist'
-                            new_cat = MainMenu(name=first_catstr)
-                            new_cat.universities.append(new_univ)
-                            session.add(new_cat)
-                            session.commit()
-                check_gen_branch = session.query(Branches).filter_by(branch_name=branch_str).first()
-                if check_gen_branch:
-                    print 'General Branch exists'
-                    check_gen_branch.branch_books.append(check_book)
-                else:
-                    print 'General Branch does not exist Creating it' 
-                    gen_branch = Branches(name=branch_str)
-                    gen_branch.branch_books.append(check_book)
-                    session.add(gen_branch)
-                    check_sec_cat = session.query(MainMenu).filter_by(name = scnd_catstr).first()
-                    if check_sec_cat:
-                        print 'Second category exist'
-                        check_sec_cat.branches.append(gen_branch)
+                            print 'university does not exist'
+                            print univ_str
+                            new_univ = Universities(university_name = univ_str)
+                            new_univ.univbranches.append(new_branch)
+                            session.add(new_univ)
+                            print first_catstr
+                            check_cat = session.query(MainMenu).filter_by(name = first_catstr).first()
+                            if check_cat:
+                                check_cat.universities.append(new_univ)
+                                #session.add(new_branch)
+                                #session.commit()
+                            else:
+                                print 'main category does not exist'
+                                new_cat = MainMenu(name=first_catstr)
+                                new_cat.universities.append(new_univ)
+                                session.add(new_cat)
+                                session.commit()
+                    check_gen_branch = session.query(Branches).filter_by(branch_name=branch_str).first()
+                    if check_gen_branch:
+                        print 'General Branch exists'
+                        check_gen_branch.branch_books.append(check_book)
                     else:
-                        sec_cat = MainMenu(name=scnd_catstr)
-                        session.add(sec_cat)
-                        sec_cat.branches.append(gen_branch)  
+                        print 'General Branch does not exist Creating it' 
+                        gen_branch = Branches(name=branch_str)
+                        gen_branch.branch_books.append(check_book)
+                        session.add(gen_branch)
+                        check_sec_cat = session.query(MainMenu).filter_by(name = scnd_catstr).first()
+                        if check_sec_cat:
+                            print 'Second category exist'
+                            check_sec_cat.branches.append(gen_branch)
+                        else:
+                            sec_cat = MainMenu(name=scnd_catstr)
+                            session.add(sec_cat)
+                            sec_cat.branches.append(gen_branch)  
             session.commit()
 #dictionary to pass to write work book
 def write_to_excel_file():
@@ -387,11 +419,17 @@ def write_to_excel_file():
                 parent_cats.append(parent_subject.subject_id)
             else:
                 pass
-            if not parent_subject.parent_branch_id in parent_cats: 
-                parent_cats.append(parent_subject.parent_branch_id)
+            if not parent_subject.parent_sem_id in parent_cats: 
+                parent_cats.append(parent_subject.parent_sem_id)
             else:
                 pass
-            parent_branch = session.query(UnivBranches).filter_by(univbra_id = parent_subject.parent_branch_id).first()
+            parent_semester = session.query(UnivSemesters).filter_by(sem_id =parent_subject.parent_sem_id ).first()
+            if not parent_semester.parent_branch_id in parent_cats:
+                parent_cats.append(parent_semester.parent_branch_id)
+            else:
+                pass
+
+            parent_branch = session.query(UnivBranches).filter_by(univbra_id = parent_semester.parent_branch_id).first()
             if not parent_branch.parent_univ_id in parent_cats: 
                 parent_cats.append(parent_branch.parent_univ_id)
             else:
@@ -514,10 +552,32 @@ def write_to_excel_file():
         cat_info['meta_keywords'] = meta_desc
         sort_order+=1
         bs.write_to_cats_sheet(cat_info)
+    #semester
+    sort_order = 0
+    for semester in session.query(UnivSemesters).all():
+        cat_info['cat_id'] = semester.sem_id
+        cat_info['parent_cat'] = semester.parent_branch_id
+        cat_info['cat_name']  = semester.sem_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        branch_name = semester.parent_branch.univbra_name
+        university_name = semester.parent_branch.university.univ_name
+        seo_list = semester.sem_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = university_name+"_"+seo_string+'_'+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +branch_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
     sort_order = 0
     for subject in session.query(Subjects).all():
         cat_info['cat_id'] = subject.subject_id
-        cat_info['parent_cat'] = subject.parent_branch_id
+        cat_info['parent_cat'] = subject.parent_sem_id
         cat_info['cat_name']  = subject.subject_name
         cat_info['q_isit_top'] = 'false'
         cat_info['sort_order'] = sort_order

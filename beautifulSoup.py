@@ -143,7 +143,10 @@ def populate_book_info_fp(isbn):
     elif price_tag!=None and our_price_tag==None:
         for original_price in price_tag.string.split():
             if original_price.isalnum():
-                real_price = int(original_price)
+                try:
+                    real_price = int(original_price)
+                except:
+                    return None
                 our_price = real_price-30
     book_info['price'] = real_price
     book_info['special_price'] = our_price
@@ -372,7 +375,7 @@ def write_to_options_sheet(book_info):
     ws_options.write(options_row,1,1)
     ws_options.write(options_row,2,'Rent The Book For')
     ws_options.write(options_row,3,'select')
-    ws_options.write(options_row,4,'2 Week')
+    ws_options.write(options_row,4,'3 Week')
     ws_options.write(options_row,5,'no_image.jpg')
     ws_options.write(options_row,6,'false')
     ws_options.write(options_row,7,100)
@@ -386,6 +389,24 @@ def write_to_options_sheet(book_info):
     ws_options.write(options_row,15,2)
     options_row+=1
     
+    #rent option for 1 Month
+    ws_options.write(options_row,0,book_info['prod_id'])
+    ws_options.write(options_row,1,1)
+    ws_options.write(options_row,2,'Rent The Book For')
+    ws_options.write(options_row,3,'select')
+    ws_options.write(options_row,4,'1 Month')
+    ws_options.write(options_row,5,'no_image.jpg')
+    ws_options.write(options_row,6,'false')
+    ws_options.write(options_row,7,100)
+    ws_options.write(options_row,8,'true')
+    ws_options.write(options_row,9,0.00)
+    ws_options.write(options_row,10,'+')
+    ws_options.write(options_row,11,0)
+    ws_options.write(options_row,12,'+')
+    ws_options.write(options_row,13,0.00)
+    ws_options.write(options_row,14,'+')
+    ws_options.write(options_row,15,2)
+    options_row+=1
 def write_to_attrs_sheet(book_info):
     global ws_attrs
     global attrs_row
@@ -693,11 +714,14 @@ def populate_book_info_bookadda(isbn):
     if 'name' in book_detailed_info_dict:
         book_info['name']=book_detailed_info_dict.get('name')+' by '
         first_time = 1
-        for authors in book_detailed_info_dict.get('authors').split(' '):
-            if first_time:
-                book_info['name']= book_info['name']+' '+unicode(authors)
-            else:
-                book_info['name'] = book_info['name']+','+unicode(authors)
+        try:
+            for authors in book_detailed_info_dict.get('authors').split(' '):
+                if first_time:
+                    book_info['name']= book_info['name']+' '+unicode(authors)
+                else:
+                    book_info['name'] = book_info['name']+','+unicode(authors)
+        except:
+            return None
         book_info['seo_key_word']=seo_key_word
     if 'authors' in  book_detailed_info_dict:
         book_info['authors'] = unicode(book_detailed_info_dict.get('authors'))
@@ -851,7 +875,10 @@ def populate_book_info_uread(isbn):
     prices_tag = ur_soup.find('div',attrs={'class':'product-prices'})
     #list price
     list_price_tag = prices_tag.find('p',attrs={'class':'list-price'})
-    real_price = int(list_price_tag.get_text().split(':')[1].strip()[1:])
+    try:
+        real_price = int(list_price_tag.get_text().split(':')[1].strip()[1:])
+    except:
+        return None
     book_info['price'] = real_price
     #discounted price
     disc_price_tag = prices_tag.find('p',attrs={'class':'our-price'})
