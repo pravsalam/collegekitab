@@ -731,6 +731,21 @@ class ModelToolExport extends Model {
 		$sql .= "LEFT JOIN `".DB_PREFIX."option_value` ov ON ov.option_id=o.option_id ";
 		$sql .= "LEFT JOIN  `".DB_PREFIX."option_value_description` ovd ON ovd.option_value_id=ov.option_value_id AND ovd.language_id=$languageId ";
 		$result = $database->query( $sql );
+		$newsql = "SELECT * FROM`".DB_PREFIX."product_option`";
+		$po = $database->query( $newsql );
+		//$npo = $po->numRows();
+		$valuesql = "SELECT * FROM`".DB_PREFIX."product_option_value`";
+		$pov = $database->query( $valuesql );
+		//$npov = $pov->numRows();
+		$npo = 0;
+		$npov = 0;
+		foreach ($po->rows as $row){
+			$npo+=1;
+		}
+		foreach($pov->rows as $row){
+			$npov+=1;
+		}
+		
 		foreach ($result->rows as $row) {
 			$name = $row['name'];
 			$type = $row['type'];
@@ -777,8 +792,8 @@ class ModelToolExport extends Model {
 		
 		// add product options and product option values to the database
 		$productOptionIds = array(); // indexed by [product_id][option_id]
-		$maxProductOptionId = 0;
-		$maxProductOptionValueId = 0;
+		$maxProductOptionId = $npo;
+		$maxProductOptionValueId = $npov;
 		foreach ($options as $option) {
 			$productId = $option['product_id'];
 			$langId = $option['language_id'];
