@@ -19,6 +19,7 @@ prod_count = 1
 #sh = wb.sheet_by_index(0)
 #end of open workbook
 engine = create_engine('sqlite:///ckb.db')
+dupengine = create_engine('sqlite:///dupck.db')
 Base = declarative_base()
 logging.basicConfig(file='db_populate.log',level=logging.DEBUG)
 #define associate table between books and related books
@@ -232,6 +233,26 @@ class Books(Base):
             self.book_image = book_info_dict['image']
     def __repr__(self):
         return "Book <Name ='%s', isbn ='%d' >"%(self.book_name_author,self.book_isbn13)
+    def book_dict(self):
+        bo_di={}
+        bo_di['name'] = self.book_name_author
+        bo_di['authors'] = self.book_author
+        bo_di['publisher']=self.book_publisher
+        bo_di['edition']=self.book_edition
+        bo_di['year_edition'] = self.book_publish_date
+        bo_di['pages'] = self.book_pages
+        bo_di['price'] = self.book_price
+        bo_di['special_price'] = self.book_special_price
+        bo_di['price_reduced_on_used'] = self.book_price_reduced_used
+        bo_di['seo_key_word'] = self.book_seo_keyword
+        bo_di['meta_desc'] = self.book_meta_desc
+        bo_di['description'] =self.book_desc
+        bo_di['meta_keywords'] =self.book_meta_keyword
+        bo_di['isbn10'] = self.book_isbn10
+        bo_di['isbn13'] = self.book_isbn13
+        bo_di['image'] = self.book_image
+        return bo_di
+        
 class RelatedBooks(Base):
     __tablename__ = 'RelatedBooks'
     related_book_id = Column(Integer,primary_key=True)
@@ -242,23 +263,28 @@ class RelatedBooks(Base):
         return "'%d'" %(self.related_book_id)
 #execute the command to create     all tables
 Base.metadata.create_all(engine)
+Base.metadata.create_all(dupengine)
 #create session object
 session = sessionmaker(bind=engine)()
-# calculate next cat id 
-cat_count+=len(session.query(MainMenu).all())
-cat_count+=len(session.query(Universities).all())
-cat_count+=len(session.query(UnivBranches).all())
-cat_count+=len(session.query(UnivSemesters).all())
-cat_count+=len(session.query(Branches).all())
-cat_count+=len(session.query(Subjects).all())
-prod_count+=len(session.query(Books).all())
-print cat_count
-print prod_count
+dupsession = sessionmaker(bind=dupengine)()
+# calculate next cat id
+def estimate_counts(db_session):
+    global cat_count
+    global prod_count 
+    cat_count+=len(db_session.query(MainMenu).all())
+    cat_count+=len(db_session.query(Universities).all())
+    cat_count+=len(db_session.query(UnivBranches).all())
+    cat_count+=len(db_session.query(UnivSemesters).all())
+    cat_count+=len(db_session.query(Branches).all())
+    cat_count+=len(db_session.query(Subjects).all())
+    prod_count+=len(db_session.query(Books).all())
+    print cat_count
+    print prod_count
 
 
 #testing workbook
 def populate_db():
-    excel_files=['anna_books_list.xls']
+    excel_files=['anna_books_list.xls','vtu_books_list.xls']
     for excel_file in excel_files:
         excel_file = 'booklist/'+excel_file
         wb = xlrd.open_workbook(excel_file)
@@ -298,7 +324,7 @@ def populate_db():
                     print img_name+' does not exist'
                     if not bs.download_prod_img(isbn_str):
                         logging.info('unable to download image for isbn %s',isbn_str)
-                        destin_img='isbn/noimage_cklogo_'+isbn_str+'.jpg'
+                        destin_img='isbn/image_'+isbn_str+'.jpg'
                         shutil.copy2('cklogo.jpg',destin_img)
                 check_book  = Books(book_info)
             else:
@@ -453,7 +479,7 @@ def write_to_excel_file():
                         related_books_list.append(subject_book.book_id)"""
         for parent_sub in book_row.parent_subjects:
             for subject_book in parent_sub.subject_books:
-                if book_row.book_id != subject_book:
+                if book_row.book_id != subject_book.book_id:
                     if not subject_book.book_id in related_books_list:
                         related_books_list.append(subject_book.book_id)
                   
@@ -593,18 +619,409 @@ def write_to_excel_file():
         cat_info['meta_keywords'] = meta_desc
         sort_order+=1
         bs.write_to_cats_sheet(cat_info)
-    bs.save_wb() 
+    bs.save_wb()
+def write_to_excel_file_from_session(db_session):
+# reiterate database to find related books.
+    for book_row in db_session.query(Books).all():
+        print book_row.book_id
+        b_dict = {}
+        b_dict['prod_id'] = book_row.book_id
+        b_dict['name'] = book_row.book_name_author
+        b_dict['publisher'] = book_row.book_publisher
+        b_dict['edition'] = book_row.book_edition
+        b_dict['authors'] = book_row.book_author
+        b_dict['year_edition'] = book_row.book_publish_date
+        b_dict['pages'] = book_row.book_pages
+        b_dict['price'] = book_row.book_price
+        b_dict['special_price'] = book_row.book_special_price
+        b_dict['points'] = book_row.book_points
+        b_dict['points_earned'] = book_row.book_points_earned
+        b_dict['price_reduced_on_used'] = book_row.book_price_reduced_used
+        b_dict['points_reduced_on_used'] = book_row.book_points_reduced_used
+        b_dict['isbn10'] = str(book_row.book_isbn10)
+        b_dict['isbn13'] = str(book_row.book_isbn13)
+        b_dict['seo_key_word'] = book_row.book_seo_keyword
+        b_dict['meta_desc'] = book_row.book_meta_desc
+        b_dict['meta_keywords'] = book_row.book_meta_keyword
+        b_dict['description'] = book_row.book_desc
+        b_dict['image'] = 'data/isbn/image_'+str(book_row.book_isbn13)+'.jpg'
+        parent_cats =[]
+        related_books_list = []
+        for parent_subject in book_row.parent_subjects:
+            b_dict['model'] = parent_subject.subject_name
+            if not parent_subject.subject_id in parent_cats: 
+                parent_cats.append(parent_subject.subject_id)
+            else:
+                pass
+            if not parent_subject.parent_sem_id in parent_cats: 
+                parent_cats.append(parent_subject.parent_sem_id)
+            else:
+                pass
+            parent_semester = db_session.query(UnivSemesters).filter_by(sem_id =parent_subject.parent_sem_id ).first()
+            if not parent_semester.parent_branch_id in parent_cats:
+                parent_cats.append(parent_semester.parent_branch_id)
+            else:
+                pass
+
+            parent_branch = db_session.query(UnivBranches).filter_by(univbra_id = parent_semester.parent_branch_id).first()
+            if not parent_branch.parent_univ_id in parent_cats: 
+                parent_cats.append(parent_branch.parent_univ_id)
+            else:
+                pass
+            parent_univ = db_session.query(Universities).filter_by(univ_id = parent_branch.parent_univ_id).first()
+            if not parent_univ.parent_menu_id in parent_cats:
+                parent_cats.append(parent_univ.parent_menu_id)
+                 
+        for gen_branch in book_row.parent_branches:
+            print gen_branch.branch_name
+            if not gen_branch.branch_id in parent_cats: 
+                parent_cats.append(gen_branch.branch_id)
+            if not gen_branch.parent_menu_id in parent_cats:
+                parent_cats.append(gen_branch.parent_menu_id)
+          
+            cat_string = ','.join(str(num) for num in parent_cats)
+            b_dict['parent_cats'] = cat_string
+            
+            """ for subject_book in  parent_subject.subject_books:
+                if book_row.book_id != subject_book.book_id:
+                    if not subject_book.book_id in related_books_list:
+                        related_books_list.append(subject_book.book_id)"""
+        for parent_sub in book_row.parent_subjects:
+            for subject_book in parent_sub.subject_books:
+                if book_row.book_id != subject_book.book_id:
+                    if not subject_book.book_id in related_books_list:
+                        related_books_list.append(subject_book.book_id)
+                  
+        print 'for book id  %d parent str is %s' %(book_row.book_id,cat_string)
+        #print related_books_list            
+        related_book_str = ','.join(str(num) for num in related_books_list)    
+        print 'for book id %d related books are %s' %(book_row.book_id,related_book_str)
+        b_dict['parent_cats'] = cat_string
+        b_dict['related_books'] = related_book_str
+        bs.write_to_prod_sheet(b_dict)
+        bs.write_to_attrs_sheet(b_dict)
+        bs.write_to_options_sheet(b_dict)
+        bs.write_to_rewards_sheet(b_dict)
+        bs.write_to_specials_sheet(b_dict)
+        #wsql.write_prods_sql(b_dict)
+        #wsql.write_prod_desc_sql(b_dict)
+        #wsql.write_prod_attrs_sql(b_dict)
+        #isbn = str(book_row.book_isbn13)
+        
+    #bs.save_wb()
+    sort_order = 0 
+    for menu in db_session.query(MainMenu).all():
+        cat_info={}
+        cat_info['cat_id'] = menu.menu_id
+        cat_info['parent_cat'] = 0
+        cat_info['cat_name'] = menu.name
+        cat_info['q_isit_top'] = 'true'
+        cat_info['sort_order'] = sort_order
+        seo_list = menu.name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = seo_string+'_'+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +menu.name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    sort_order = 0
+    for branch in db_session.query(Branches).all():
+        cat_info={}
+        cat_info['cat_id']= branch.branch_id
+        cat_info['parent_cat'] = branch.parent_menu_id
+        cat_info['cat_name'] = branch.branch_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        seo_list = branch.branch_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = seo_string+'_'+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +branch.branch_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    sort_order = 0 
+    for university in db_session.query(Universities).all():
+        cat_info['cat_id'] = university.univ_id
+        cat_info['parent_cat'] = university.parent_menu_id
+        cat_info['cat_name'] = university.univ_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        seo_list = university.univ_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = seo_string+' '+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +university.univ_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    sort_order = 0
+    for univbranch in db_session.query(UnivBranches).all():
+        cat_info['cat_id'] = univbranch.univbra_id
+        cat_info['parent_cat'] = univbranch.parent_univ_id
+        cat_info['cat_name'] = univbranch.univbra_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        seo_list = univbranch.univbra_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = seo_string+' '+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +univbranch.univbra_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    #semester
+    sort_order = 0
+    for semester in db_session.query(UnivSemesters).all():
+        cat_info['cat_id'] = semester.sem_id
+        cat_info['parent_cat'] = semester.parent_branch_id
+        cat_info['cat_name']  = semester.sem_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        branch_name = semester.parent_branch.univbra_name
+        university_name = semester.parent_branch.university.univ_name
+        seo_list = semester.sem_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = university_name+"_"+seo_string+'_'+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +branch_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    sort_order = 0
+    for subject in db_session.query(Subjects).all():
+        cat_info['cat_id'] = subject.subject_id
+        cat_info['parent_cat'] = subject.parent_sem_id
+        cat_info['cat_name']  = subject.subject_name
+        cat_info['q_isit_top'] = 'false'
+        cat_info['sort_order'] = sort_order
+        seo_list = subject.subject_name.split()
+        seo_string = '_'.join(str(key_word) for key_word in seo_list)
+        seo_string = seo_string+'_'+'Books'
+        cat_info['seo_key_words'] = seo_string
+        meta_desc = ' buy ' +subject.subject_name+ ' books online at collegekitab.com'
+        meta_desc = meta_desc+ ' Collegekitab.com exclusively dedicated for academic books is favorite among students.'
+        meta_desc = meta_desc+ ' at collegekitab.com you can not only buy books online, you can also buy used books or rent books on short term'
+        meta_desc = meta_desc+ ' collegekitab.com is one stop shop for all engineering branches, MBA, medicine, arts and science books'
+        cat_info['meta_desc'] = meta_desc
+        cat_info['meta_keywords'] = meta_desc
+        sort_order+=1
+        bs.write_to_cats_sheet(cat_info)
+    bs.save_wb()  
 def convert_isbn13_to_string():
     for book_row in session.query(Books).all():
         book_row.book_isbn10 = str(book_row.book_isbn10)
         book_row.book_isbn13 = str(book_row.book_isbn13)
         print book_row.book_isbn13
         session.commit()
+def rectify_db():
+    for book_row in session.query(Books).all():
+        name = book_row.book_name_author;
+        book_title = name.split('by')[0].strip()
+        #print book_title
+        try:
+            float(book_title)
+            #these books has isbn as the book name very bad
+            bo_di = bs.populate_book_info_fp(book_title)
+            print bo_di['name']
+            book_row.book_name_author = bo_di['name']
+            session.commit()
+        except:
+            pass
+def correct_real_price_prob(db_session):
+    for book_row in db_session.query(Books).all():
+        if book_row.book_price == 'real_price':
+            print book_row.book_isbn13
+            book_row.book_price = book_row.book_points/4
+    db_session.commit()
+def duplicate_db():
+    print 'wtf'
+    excel_files=['anna_books_list.xls','vtu_books_list.xls']
+    for excel_file in excel_files:
+        excel_file = 'booklist/'+excel_file
+        wb = xlrd.open_workbook(excel_file)
+        sh = wb.sheet_by_index(0)
+        for rownum in range(sh.nrows):
+            row_list = sh.row_values(rownum)
+            isbn_str = row_list[10]
+            isbn_int= int(row_list[10])
+            branch_str = row_list[4]
+            sem_str = row_list[5]
+            sub_str = row_list[6]
+            univ_str = row_list[2]
+            univ_code= row_list[12]
+            first_catstr = row_list[1]
+            scnd_catstr = row_list[3]
+            branch_code = row_list[11]
+            print isbn_str
+            #look up the book in our db
+            check_book = session.query(Books).filter_by(book_isbn13=isbn_int).first()
+            if  check_book:
+                #book is present in original DB
+                # check if the duplicate db already has the book 
+                new_book = dupsession.query(Books).filter_by(book_isbn13 = isbn_int).first()
+                if not new_book:
+                    bo_di = check_book.book_dict()
+                    new_book = Books(bo_di)
+                    
+                subject_real_str_name = sub_str.strip()+'_'+branch_code+'_'+univ_code
+                print subject_real_str_name
+                #check if the subject exist
+                check_subject=dupsession.query(Subjects).filter_by(subject_real_name =subject_real_str_name).first()
+                print check_subject
+                if check_subject:
+                    #subject exist add to that 
+                    check_subject.subject_books.append(new_book)
+                    dupsession.add(new_book)
+                    #dupsession.commit()   
+                else:
+                    print "subject %s does not exit, creating it" %(sub_str)
+                    new_subject = Subjects(name=sub_str,realname=subject_real_str_name)
+                    new_subject.subject_books.append(new_book)
+                    dupsession.add(new_subject)
+                    print (sem_str)
+                    semester_real_name = sem_str+'_'+branch_code+'_'+univ_code
+                    check_univsem = dupsession.query(UnivSemesters).filter_by(sem_real_name = semester_real_name).first()
+                    if check_univsem:
+                        print 'sem  exists'
+                        check_univsem.sem_subjects.append(new_subject)
+                    else:
+                        print 'sem does not exist'
+                        new_univsem = UnivSemesters(sem_name = sem_str,sem_real_name = semester_real_name)
+                        new_univsem.sem_subjects.append(new_subject)
+                        dupsession.add(new_univsem) 
+                        
+                        print(branch_str)
+                        branch_real_name = branch_str+'_'+univ_code
+                        check_univbranch = dupsession.query(UnivBranches).filter_by(univbra_real_name = branch_real_name).first()
+                        #print check_univbranch
+                        if check_univbranch:
+                            check_univbranch.UnivSemesters.append(new_univsem)
+                            #dupsession.add(new_subject)
+                            #dupsession.commit()
+                            print check_univbranch.UnivSemesters   
+                        else:
+                            print 'univbranch does not exist'
+                            new_branch = UnivBranches(univbranch_name=branch_str,univbranch_real_name=branch_real_name)
+                            new_branch.UnivSemesters.append(new_univsem)
+                            dupsession.add(new_branch)
+                            check_univ = dupsession.query(Universities).filter_by(univ_name = univ_str).first()
+                            if check_univ:
+                                check_univ.univbranches.append(new_branch)
+                                dupsession.add(new_branch)
+                            else:
+                                print 'university does not exist'
+                                print univ_str
+                                new_univ = Universities(university_name = univ_str)
+                                new_univ.univbranches.append(new_branch)
+                                dupsession.add(new_univ)
+                                print first_catstr
+                                check_cat = dupsession.query(MainMenu).filter_by(name = first_catstr).first()
+                                if check_cat:
+                                    check_cat.universities.append(new_univ)
+                                    #dupsession.add(new_branch)
+                                    #dupsession.commit()
+                                else:
+                                    print 'main category does not exist'
+                                    new_cat = MainMenu(name=first_catstr)
+                                    new_cat.universities.append(new_univ)
+                                    dupsession.add(new_cat)
+                                    dupsession.commit()
+                check_gen_branch = dupsession.query(Branches).filter_by(branch_name=branch_str).first()
+                if check_gen_branch:
+                    print 'General Branch exists'
+                    check_gen_branch.branch_books.append(new_book)
+                else:
+                    print 'General Branch does not exist Creating it' 
+                    gen_branch = Branches(name=branch_str)
+                    gen_branch.branch_books.append(new_book)
+                    dupsession.add(gen_branch)
+                    check_sec_cat = dupsession.query(MainMenu).filter_by(name = scnd_catstr).first()
+                    if check_sec_cat:
+                        print 'Second category exist'
+                        check_sec_cat.branches.append(gen_branch)
+                    else:
+                        sec_cat = MainMenu(name=scnd_catstr)
+                        dupsession.add(sec_cat)
+                        sec_cat.branches.append(gen_branch)
+                        dupsession.commit()  
+                dupsession.commit()
+def correct_meta_data(db_session):
+    for book_row in db_session.query(Books).all():
+        #print book_row.book_desc
+        if  book_row.book_desc =='None':
+            #if book_row.book_desc =='None':
+            #print 'booka'
+            print book_row.book_desc
+            print book_row.book_isbn13
+            # these books have no data or meta data attached
+            bo_di = {}
+            bo_di = bs.populate_book_info_fp(str(book_row.book_isbn13))
+            if not 'description' in bo_di:
+                print 'go bookadda'
+                bo_di = bs.populate_book_info_bookadda(str(book_row.book_isbn13))
+                if not 'description' in bo_di:
+                    print 'go uread'
+                    bo_di = bs.populate_book_info_uread(str(book_row.book_isbn13))
+            if not bo_di:
+                print 'dengindi '+str(book_row.book_isbn13)
+            else:
+                if 'description' in bo_di:           
+                    book_row.book_desc = str(bo_di['description']) 
+                    book_row.book_meta_desc = str(bo_di['meta_desc'])
+                    book_row.book_meta_keyword = str(bo_di['meta_keywords'])
+                    db_session.commit()
+def correct_secondhand_price(db_session):
+    print 'what'
+    for book_row in db_session.query(Books).all():
+        #here we set the price to 75% or 70%
+        print book_row.book_name_author 
+        price = book_row.book_price
+        scndhand_price = int(price*0.75)
+        sale_price = book_row.book_special_price
+        if sale_price < scndhand_price:
+            scndhand_price = int(price*0.70)
+        price_reduced_on_scndhand = sale_price - scndhand_price
+        book_row.book_price_reduced_used = price_reduced_on_scndhand
+        book_row.book_points_reduced_used = int(price_reduced_on_scndhand/10) 
+        db_session.commit()
+def correct_neg_pricereds(db_session):
+    for book_row in db_session.query(Books).all():
+        if book_row.book_price_reduced_used < 0:
+            print book_row.book_isbn13, book_row.book_price, book_row.book_special_price, book_row.book_price_reduced_used
 #now collect information and write onto the tables
-populate_db()
+#estimate_counts(dupsession)
+#populate_db()
+#rectify_db()
+#correct_real_price_prob(dupsession)
 #write_to_excel_file()
 #convert_isbn13_to_string()
-
+#duplicate_db()
+#correct_meta_data(dupsession)
+#write_to_excel_file_from_session(dupsession)
+#correct_secondhand_price(dupsession)
+correct_neg_pricereds(dupsession)
 """b_dict={}
 for bk in session.query(Books).all():
     b_dict['product_id'] = bk.book_id
