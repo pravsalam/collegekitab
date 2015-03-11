@@ -601,8 +601,8 @@ def download_prod_img_from_ba(isbn):
 def download_prod_img(isbn):
     #first try to download image from
     stripped_isbn=isbn.strip() 
-    AWS_KEY = "AKIAIPTBXUAPSQ3LNYEA"
-    SECRET_KEY = "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"
+    AWS_KEY = "AWS_KEY" # this won't work,get aws key
+    SECRET_KEY = "AWSK_SECRET_KEY" #this won't work, get aws secret key
     ASSOCIATE_TAG = "wwwgetgreacom-20"
     api = bottlenose.Amazon(AWS_KEY,SECRET_KEY,ASSOCIATE_TAG,"ItemLookup")
     root = api.ItemLookup(ItemId=stripped_isbn,IdType="ISBN",SearchIndex="Books" ,  ResponseGroup="Large")
